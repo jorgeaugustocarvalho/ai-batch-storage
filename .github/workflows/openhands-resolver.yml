@@ -1,83 +1,13 @@
-# =============================================================================
-# Generic OpenHands development workflow – use in any repo for AI-assisted coding
-# =============================================================================
-# When someone creates a coding issue, the OpenHands agent can run and open a PR.
-#
-# Triggers (any of these):
-#   Labels on issue/PR:  fix-me | create-project | fix-me-experimental
-#   Comments:            @openhands-agent  (in issue or PR review; OWNER/COLLABORATOR/MEMBER only)
-#   workflow_dispatch:   Run manually from Actions tab (choose issue/PR number).
-#   workflow_call:       Invoke from another workflow with inputs.
-#
-# Label usage:
-#   fix-me               Existing project – agent fixes/implements what the issue describes.
-#   create-project      Empty repo – agent bootstraps the project from the issue spec.
-#   fix-me-experimental Use development build of OpenHands (no pip cache).
-#
-# Required: GitHub secret LLM_API_KEY (or CODEX_API_KEY).
-# Optional:  PAT_TOKEN, PAT_USERNAME, LLM_MODEL, LLM_BASE_URL.
-# Optional:  .openhands/microagents/repo.md in the repo for project-specific agent instructions.
-# See: docs/OPENHANDS_DEV_WORKFLOW.md
-# =============================================================================
-name: OpenHands – Resolve issue / PR
+# Auto-fix issues/PRs with OpenHands (fix-me / create-project label or @openhands-agent).
+# - fix-me: use when the project already exists and you want the agent to fix or implement something.
+# - create-project: use when the repo is empty and you want the agent to create the project from the issue spec (bootstrap).
+# From: https://github.com/All-Hands-AI/OpenHands/blob/main/.github/workflows/openhands-resolver.yml
+# Requires: LLM_API_KEY (or CODEX_API_KEY for OpenAI Codex). Optional: PAT_TOKEN, PAT_USERNAME. See docs/OPENHANDS_SETUP.md.
+name: Auto-Fix Tagged Issue with OpenHands
 
 on:
-  workflow_dispatch:
-    inputs:
-      max_iterations:
-        required: false
-        type: number
-        default: 50
-      macro:
-        required: false
-        type: string
-        default: "@openhands-agent"
-      target_branch:
-        required: false
-        type: string
-        default: "main"
-        description: "Target branch to pull and create PR against"
-      pr_type:
-        required: false
-        type: string
-        default: "draft"
-        description: "The PR type (draft, ready)"
-      issue_number:
-        required: true
-        type: number
-        description: "Issue or PR number to resolve (required for manual run)"
-      issue_type:
-        required: false
-        type: string
-        default: "issue"
-        description: "issue or pr"
-      LLM_MODEL:
-        required: false
-        type: string
-        default: "anthropic/claude-sonnet-4-20250514"
-      LLM_API_VERSION:
-        required: false
-        type: string
-        default: ""
-      base_container_image:
-        required: false
-        type: string
-        default: ""
-      runner:
-        required: false
-        type: string
-        default: "ubuntu-latest"
   workflow_call:
     inputs:
-      issue_number:
-        required: false
-        type: number
-        description: "Issue or PR number (pass when caller provides context)"
-      issue_type:
-        required: false
-        type: string
-        default: "issue"
-        description: "issue or pr"
       max_iterations:
         required: false
         type: number
@@ -143,14 +73,10 @@ permissions:
   pull-requests: write
   issues: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   auto-fix:
     if: |
       github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'fix-me' ||
       github.event.label.name == 'create-project' ||
       github.event.label.name == 'fix-me-experimental' ||
@@ -169,7 +95,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -225,13 +151,7 @@ jobs:
         env:
           REVIEW_BODY: ${{ github.event.review.body || '' }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "ISSUE_NUMBER=${{ inputs.issue_number }}" >> $GITHUB_ENV
-            echo "ISSUE_TYPE=${{ inputs.issue_type || 'issue' }}" >> $GITHUB_ENV
-          elif [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.issue_number }}" ]; then
-            echo "ISSUE_NUMBER=${{ inputs.issue_number }}" >> $GITHUB_ENV
-            echo "ISSUE_TYPE=${{ inputs.issue_type || 'issue' }}" >> $GITHUB_ENV
-          elif [ -n "${{ github.event.pull_request.number }}" ]; then
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
             echo "ISSUE_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
             echo "ISSUE_TYPE=pr" >> $GITHUB_ENV
           elif [ -n "$REVIEW_BODY" ]; then
@@ -251,17 +171,11 @@ jobs:
           fi
           echo "MAX_ITERATIONS=${{ inputs.max_iterations || 50 }}" >> $GITHUB_ENV
           echo "SANDBOX_ENV_GITHUB_TOKEN=${{ secrets.PAT_TOKEN || github.token }}" >> $GITHUB_ENV
-          if [ -n "${{ inputs.base_container_image }}" ]; then
-            echo "SANDBOX_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image }}" >> $GITHUB_ENV
-          else
-            echo "SANDBOX_BASE_CONTAINER_IMAGE=ghcr.io/all-hands-ai/runtime:0.48-nikolaik" >> $GITHUB_ENV
-          fi
-          echo "AGENT_SERVER_IMAGE_REPOSITORY=ghcr.io/all-hands-ai/runtime" >> $GITHUB_ENV
-          echo "AGENT_SERVER_IMAGE_TAG=0.48-nikolaik" >> $GITHUB_ENV
+          echo "SANDBOX_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image }}" >> $GITHUB_ENV
           echo "TARGET_BRANCH=${{ inputs.target_branch || 'main' }}" >> $GITHUB_ENV
 
       - name: Comment on issue with start message
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PAT_TOKEN || github.token }}
           script: |
@@ -292,9 +206,9 @@ jobs:
               (eventName === "pull_request_review" && reviewBody.includes("@openhands-agent-exp"));
             core.setOutput('isExperimental', isExperimental);
             if (isExperimental) {
-              await exec.exec("pip install git+https://github.com/All-Hands-AI/OpenHands.git");
+              await exec.exec("pip install git+https://github.com/openhands/openhands.git");
             } else {
-              await exec.exec("pip install git+https://github.com/All-Hands-AI/OpenHands.git");
+              await exec.exec("pip install -r /tmp/requirements.txt");
             }
 
       - name: Attempt to resolve issue
@@ -307,9 +221,6 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
-          SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}
-          AGENT_SERVER_IMAGE_REPOSITORY: ${{ env.AGENT_SERVER_IMAGE_REPOSITORY }}
-          AGENT_SERVER_IMAGE_TAG: ${{ env.AGENT_SERVER_IMAGE_TAG }}
         run: |
           cd /tmp && python -m openhands.resolver.resolve_issue \
             --selected-repo ${{ github.repository }} \
@@ -317,8 +228,7 @@ jobs:
             --issue-type ${{ env.ISSUE_TYPE }} \
             --max-iterations ${{ env.MAX_ITERATIONS }} \
             --comment-id ${{ env.COMMENT_ID }} \
-            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }} \
-            --base-container-image "${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}"
+            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
 
       - name: Check resolution result
         id: check_result
