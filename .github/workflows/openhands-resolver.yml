@@ -256,6 +256,8 @@ jobs:
           else
             echo "SANDBOX_BASE_CONTAINER_IMAGE=ghcr.io/all-hands-ai/runtime:0.48-nikolaik" >> $GITHUB_ENV
           fi
+          echo "AGENT_SERVER_IMAGE_REPOSITORY=ghcr.io/all-hands-ai/runtime" >> $GITHUB_ENV
+          echo "AGENT_SERVER_IMAGE_TAG=0.48-nikolaik" >> $GITHUB_ENV
           echo "TARGET_BRANCH=${{ inputs.target_branch || 'main' }}" >> $GITHUB_ENV
 
       - name: Comment on issue with start message
@@ -290,9 +292,9 @@ jobs:
               (eventName === "pull_request_review" && reviewBody.includes("@openhands-agent-exp"));
             core.setOutput('isExperimental', isExperimental);
             if (isExperimental) {
-              await exec.exec("pip install git+https://github.com/openhands/openhands.git");
+              await exec.exec("pip install git+https://github.com/All-Hands-AI/OpenHands.git");
             } else {
-              await exec.exec("pip install -r /tmp/requirements.txt");
+              await exec.exec("pip install git+https://github.com/All-Hands-AI/OpenHands.git");
             }
 
       - name: Attempt to resolve issue
@@ -305,6 +307,9 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
+          SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}
+          AGENT_SERVER_IMAGE_REPOSITORY: ${{ env.AGENT_SERVER_IMAGE_REPOSITORY }}
+          AGENT_SERVER_IMAGE_TAG: ${{ env.AGENT_SERVER_IMAGE_TAG }}
         run: |
           cd /tmp && python -m openhands.resolver.resolve_issue \
             --selected-repo ${{ github.repository }} \
@@ -312,7 +317,8 @@ jobs:
             --issue-type ${{ env.ISSUE_TYPE }} \
             --max-iterations ${{ env.MAX_ITERATIONS }} \
             --comment-id ${{ env.COMMENT_ID }} \
-            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
+            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }} \
+            --base-container-image "${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}"
 
       - name: Check resolution result
         id: check_result
