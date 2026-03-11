@@ -73,6 +73,8 @@ When you **call** this workflow from another workflow (`workflow_call`) or run i
 
 For more options, see the workflow file and [OpenHands GitHub Action – Custom configurations](https://docs.openhands.dev/usage/how-to/github-action#custom-configurations).
 
+**Runtime Docker image:** The workflow uses a default sandbox image (`ghcr.io/all-hands-ai/runtime:0.48-nikolaik`) so the agent has a working environment. If you see a "No such image" or 404 error for `ghcr.io/openhands/runtime:...`, the workflow was updated to avoid that. You can override the image via the `base_container_image` input when calling the workflow manually or from another workflow.
+
 ---
 
 ## Summary
