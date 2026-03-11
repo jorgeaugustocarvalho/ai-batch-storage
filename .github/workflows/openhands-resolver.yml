@@ -1,13 +1,83 @@
-# Auto-fix issues/PRs with OpenHands (fix-me / create-project label or @openhands-agent).
-# - fix-me: use when the project already exists and you want the agent to fix or implement something.
-# - create-project: use when the repo is empty and you want the agent to create the project from the issue spec (bootstrap).
-# From: https://github.com/All-Hands-AI/OpenHands/blob/main/.github/workflows/openhands-resolver.yml
-# Requires: LLM_API_KEY (or CODEX_API_KEY for OpenAI Codex). Optional: PAT_TOKEN, PAT_USERNAME. See docs/OPENHANDS_SETUP.md.
-name: Auto-Fix Tagged Issue with OpenHands
+# =============================================================================
+# Generic OpenHands development workflow – use in any repo for AI-assisted coding
+# =============================================================================
+# When someone creates a coding issue, the OpenHands agent can run and open a PR.
+#
+# Triggers (any of these):
+#   Labels on issue/PR:  fix-me | create-project | fix-me-experimental
+#   Comments:            @openhands-agent  (in issue or PR review; OWNER/COLLABORATOR/MEMBER only)
+#   workflow_dispatch:   Run manually from Actions tab (choose issue/PR number).
+#   workflow_call:       Invoke from another workflow with inputs.
+#
+# Label usage:
+#   fix-me               Existing project – agent fixes/implements what the issue describes.
+#   create-project      Empty repo – agent bootstraps the project from the issue spec.
+#   fix-me-experimental Use development build of OpenHands (no pip cache).
+#
+# Required: GitHub secret LLM_API_KEY (or CODEX_API_KEY).
+# Optional:  PAT_TOKEN, PAT_USERNAME, LLM_MODEL, LLM_BASE_URL.
+# Optional:  .openhands/microagents/repo.md in the repo for project-specific agent instructions.
+# See: docs/OPENHANDS_DEV_WORKFLOW.md
+# =============================================================================
+name: OpenHands – Resolve issue / PR
 
 on:
+  workflow_dispatch:
+    inputs:
+      max_iterations:
+        required: false
+        type: number
+        default: 50
+      macro:
+        required: false
+        type: string
+        default: "@openhands-agent"
+      target_branch:
+        required: false
+        type: string
+        default: "main"
+        description: "Target branch to pull and create PR against"
+      pr_type:
+        required: false
+        type: string
+        default: "draft"
+        description: "The PR type (draft, ready)"
+      issue_number:
+        required: true
+        type: number
+        description: "Issue or PR number to resolve (required for manual run)"
+      issue_type:
+        required: false
+        type: string
+        default: "issue"
+        description: "issue or pr"
+      LLM_MODEL:
+        required: false
+        type: string
+        default: "anthropic/claude-sonnet-4-20250514"
+      LLM_API_VERSION:
+        required: false
+        type: string
+        default: ""
+      base_container_image:
+        required: false
+        type: string
+        default: ""
+      runner:
+        required: false
+        type: string
+        default: "ubuntu-latest"
   workflow_call:
     inputs:
+      issue_number:
+        required: false
+        type: number
+        description: "Issue or PR number (pass when caller provides context)"
+      issue_type:
+        required: false
+        type: string
+        default: "issue"
+        description: "issue or pr"
       max_iterations:
         required: false
         type: number
@@ -80,6 +150,7 @@ jobs:
   auto-fix:
     if: |
       github.event_name == 'workflow_call' ||
+      github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'fix-me' ||
       github.event.label.name == 'create-project' ||
       github.event.label.name == 'fix-me-experimental' ||
@@ -154,7 +225,13 @@ jobs:
         env:
           REVIEW_BODY: ${{ github.event.review.body || '' }}
         run: |
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ISSUE_NUMBER=${{ inputs.issue_number }}" >> $GITHUB_ENV
+            echo "ISSUE_TYPE=${{ inputs.issue_type || 'issue' }}" >> $GITHUB_ENV
+          elif [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.issue_number }}" ]; then
+            echo "ISSUE_NUMBER=${{ inputs.issue_number }}" >> $GITHUB_ENV
+            echo "ISSUE_TYPE=${{ inputs.issue_type || 'issue' }}" >> $GITHUB_ENV
+          elif [ -n "${{ github.event.pull_request.number }}" ]; then
             echo "ISSUE_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
             echo "ISSUE_TYPE=pr" >> $GITHUB_ENV
           elif [ -n "$REVIEW_BODY" ]; then
